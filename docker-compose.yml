@@ -1,0 +1,43 @@
+# Optional containerized stack — local Ollama + Cloudflare tunnel + the agent.
+# On Mac Mini you'll typically run Ollama natively (faster, GPU access). This
+# compose file is provided so the agent can be deployed cleanly elsewhere.
+services:
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama:/root/.ollama
+    # On startup, pull the qwen model. Comment out if you pull manually.
+    command: >
+      sh -c "ollama serve & sleep 5 && ollama pull qwen2.5:7b-instruct && wait"
+
+  agent:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      - ollama
+    env_file:
+      - .env
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./out:/app/out
+      - ./templates:/app/templates
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    depends_on:
+      - agent
+    # Expects TUNNEL_TOKEN in environment (named tunnel from Cloudflare Zero Trust).
+    command: tunnel --no-autoupdate run
+    env_file:
+      - .env
+
+volumes:
+  ollama:
