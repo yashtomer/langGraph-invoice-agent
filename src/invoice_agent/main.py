@@ -12,6 +12,7 @@ from .config import get_settings
 from .db import init_db
 from .logging_setup import configure_logging, get_logger
 from .scheduler import build_scheduler
+from .webhook.legal import build_legal_router
 from .webhook.server import build_router
 
 log = get_logger(__name__)
@@ -36,6 +37,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(title="Invoice Agent", version="0.1.0", lifespan=lifespan)
     app.include_router(build_router(s))
+    app.include_router(build_legal_router())
     return app
 
 

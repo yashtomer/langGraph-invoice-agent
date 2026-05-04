@@ -26,6 +26,8 @@ from ..config import Settings, get_settings
 from ..db import get_status
 from ..logging_setup import configure_logging, get_logger
 from ..runner import resume_with_reply, start_for_month
+from ..tools.whatsapp import WhatsAppClient
+from .query import try_answer
 
 log = get_logger(__name__)
 
@@ -102,6 +104,15 @@ def build_router(settings: Optional[Settings] = None) -> APIRouter:
             log.warning("webhook.unauthorized_sender", from_phone=from_phone)
             return {"ok": True, "ignored": "unauthorized sender"}
 
+        # Free-form question intercept (runs before flow routing so a query
+        # mid-flow doesn't get consumed as a project-name / approval reply).
+        answer = try_answer(text, settings=s)
+        if answer is not None:
+            with WhatsAppClient(s) as wa:
+                wa.send_text(to=from_phone, body=answer)
+            log.info("webhook.query_answered", text_preview=text[:80])
+            return {"ok": True, "answered": True}
+
         month = _current_month(s.timezone)
         if get_status(month, settings=s) is None:
             log.info("webhook.no_active_flow", month=month)
@@ -130,4 +141,6 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     configure_logging()
     app = FastAPI(title="Invoice Agent", version="0.1.0")
     app.include_router(build_router(settings))
+    from .legal import build_legal_router
+    app.include_router(build_legal_router())
     return app

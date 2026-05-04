@@ -41,7 +41,7 @@ def email_accounts(
         body=body,
         pdf_path=pdf_path,
         to=s.accounts_recipients(),
-        cc=[s.cc_email] if s.cc_email else [],
+        cc=s.cc_recipients(),
         settings=s,
     )
 
