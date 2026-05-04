@@ -28,11 +28,12 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "qwen2.5:7b-instruct"
 
-    # Email
-    smtp_host: str = "smtp.gmail.com"
-    smtp_port: int = 587
-    smtp_user: str = ""
-    smtp_app_password: SecretStr = SecretStr("")
+    # Email (Microsoft Graph API, client credentials flow)
+    azure_client_id: str = ""
+    azure_client_secret: SecretStr = SecretStr("")
+    azure_tenant_id: str = ""
+    azure_mail_user: str = ""
+    attachment_save_path: str = "uploads/attachments"
     accounts_email: str = ""
     cc_email: str = ""
 
@@ -74,6 +75,9 @@ class Settings(BaseSettings):
 
     def accounts_recipients(self) -> list[str]:
         return [e.strip() for e in self.accounts_email.split(",") if e.strip()]
+
+    def cc_recipients(self) -> list[str]:
+        return [e.strip() for e in self.cc_email.split(",") if e.strip()]
 
 
 @lru_cache(maxsize=1)

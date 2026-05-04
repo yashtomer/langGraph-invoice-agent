@@ -32,12 +32,10 @@ def ask_project_name(
 
     client = wa or WhatsAppClient(s)
     try:
-        # Use template message — required to *open* a conversation outside 24h window.
         client.send_template(
             to=to,
             template_name=s.approved_template_name,
             language="en",
-            body_params=[month],
         )
     finally:
         if wa is None:

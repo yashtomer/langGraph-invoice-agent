@@ -21,7 +21,11 @@ make clean                          # nukes out/*.pdf, data/*.sqlite, caches
 
 The `invoice-agent` script is wired in `pyproject.toml` to `invoice_agent.main:run`. Coverage and `pythonpath = ["src"]` are configured under `[tool.pytest.ini_options]`, so `uv run pytest` works from the repo root with no extra flags.
 
-WeasyPrint requires native libs (`brew install pango cairo gdk-pixbuf libffi`). `tests/test_pdf_render.py` auto-skips when those aren't present, but the `generate_pdf` node will fail at runtime without them.
+WeasyPrint requires native libs:
+- macOS: `brew install pango cairo gdk-pixbuf libffi`
+- Ubuntu/Debian: `apt install libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz0b libfontconfig1`
+
+`tests/test_pdf_render.py` auto-skips when those aren't present, but the `generate_pdf` node will fail at runtime without them.
 
 ## Architecture
 
@@ -61,9 +65,15 @@ If you introduce a new entry point, route it through `runner.py` — that's the 
 
 Amount, recipients, invoice number, and template content are all deterministic from `Settings` + state. Don't add LLM calls anywhere in `nodes/email_accounts.py`, `tools/mailer.py`, or `tools/pdf.py`.
 
+### Email via Microsoft Graph (not SMTP)
+
+`tools/mailer.py` uses MSAL **client-credentials** flow → `POST /users/{AZURE_MAIL_USER}/sendMail` with the PDF attached as a base64 `fileAttachment`. There is no Gmail/SMTP path. The Azure app needs the **`Mail.Send` Application permission** with admin consent. By default that grants send-as-anyone-in-the-tenant — restrict it via Exchange Online `New-ApplicationAccessPolicy` scoped to a security group containing only `AZURE_MAIL_USER`. CC recipients are comma-separated in `CC_EMAIL` and parsed via `Settings.cc_recipients()` (mirrors `accounts_recipients()`).
+
 ### Webhook security
 
 `/webhook` POST validates `X-Hub-Signature-256` (HMAC-SHA256 of raw body with `META_WA_APP_SECRET`) — read `request.body()` once, before parsing JSON, or the HMAC won't match. The handler also rejects messages whose `from` ≠ `USER_WHATSAPP_NUMBER` and ignores inbound messages when no `invoice_history` row exists for the current month (no auto-start from random user texts). `/trigger` uses a separate `X-Shared-Secret` header.
+
+`USER_WHATSAPP_NUMBER` must be in the bare international format `91XXXXXXXXXX` — **no leading `+`**. Meta strips the plus on inbound webhook payloads, and the sender-equality check is exact-string. With `+` in `.env`, every reply is silently dropped as `webhook.unauthorized_sender`.
 
 The GET `/webhook` verification handshake must echo `hub.challenge` *without* HMAC checking — that's a one-time GET, not a signed POST.
 

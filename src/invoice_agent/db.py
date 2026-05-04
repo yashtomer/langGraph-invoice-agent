@@ -63,6 +63,16 @@ def already_sent(month: str, *, settings: Optional[Settings] = None) -> bool:
     return get_status(month, settings=settings) == "sent"
 
 
+def get_last_sent(*, settings: Optional[Settings] = None) -> Optional[sqlite3.Row]:
+    """Most recent invoice_history row with status='sent', or None."""
+    with connect(settings) as conn:
+        return conn.execute(
+            "SELECT month, project_name, pdf_path, created_at, updated_at "
+            "FROM invoice_history WHERE status = 'sent' "
+            "ORDER BY month DESC LIMIT 1"
+        ).fetchone()
+
+
 def mark_started(month: str, *, settings: Optional[Settings] = None) -> None:
     now = _now()
     with connect(settings) as conn:
