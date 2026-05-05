@@ -31,15 +31,16 @@ WeasyPrint requires native libs:
 
 This is a human-in-the-loop LangGraph agent that runs once a month, drives a WhatsApp conversation, generates a PDF invoice, and emails it on user approval. The non-obvious parts:
 
-### Three concerns, one SQLite file
+### Four concerns, one SQLite file
 
-`data/invoice_agent.db` is shared by **three independent owners** that must not collide:
+`data/invoice_agent.db` is shared by **four independent owners** that must not collide:
 
 1. `langgraph_checkpoints` — owned by `SqliteSaver` (LangGraph state per thread).
 2. `apscheduler_jobs` — owned by APScheduler's `SQLAlchemyJobStore`.
-3. `invoice_history` — owned by `db.py` for idempotency (`started` / `sent` / `cancelled` / `errored` per month).
+3. `invoice_history` — owned by `db.py` for idempotency (`started` / `sent` / `cancelled` / `errored` per month). Also stores `amount_inr` / `attendance_days` / `invoice_number` so the QA agent can answer questions without reading the LangGraph checkpoint.
+4. `chat_memory` — owned by `qa/memory.py`. Per-user-phone alternating user/assistant turns (Q&A conversation history). Keyed on `(user_phone, turn_idx)`.
 
-When touching schema or migrations, remember the file is multi-owner — only mess with the `invoice_history` DDL in `db.py:_SCHEMA`.
+When touching schema or migrations, remember the file is multi-owner — only mess with the `invoice_history` and `chat_memory` DDL in `db.py:_SCHEMA`.
 
 ### Interrupt-after, not interrupt-inside
 
@@ -68,6 +69,19 @@ Amount, recipients, invoice number, and template content are all deterministic f
 ### Email via Microsoft Graph (not SMTP)
 
 `tools/mailer.py` uses MSAL **client-credentials** flow → `POST /users/{AZURE_MAIL_USER}/sendMail` with the PDF attached as a base64 `fileAttachment`. There is no Gmail/SMTP path. The Azure app needs the **`Mail.Send` Application permission** with admin consent. By default that grants send-as-anyone-in-the-tenant — restrict it via Exchange Online `New-ApplicationAccessPolicy` scoped to a security group containing only `AZURE_MAIL_USER`. CC recipients are comma-separated in `CC_EMAIL` and parsed via `Settings.cc_recipients()` (mirrors `accounts_recipients()`).
+
+### Q&A agent (free-form questions)
+
+Generic question intents from `parse_query_intent` route to `qa.answer()` instead of the old `chat_reply`. The agent is `langgraph.prebuilt.create_react_agent` over three tools (`get_invoice`, `compare_invoices`, `web_search` via Tavily) backed by `qwen2.5:7b-instruct`. Per-user chat history is stored in `chat_memory`. The webhook calls `try_answer` via `asyncio.to_thread` because the agent can take seconds.
+
+Three guardrails sit between the LLM and the WhatsApp send:
+1. **`recursion_limit=8`** — caps tool-call loop iterations (≤ ~3 tool calls then answer).
+2. **`ThreadPoolExecutor` timeout** — `qa_invoke_timeout_seconds` (default 30s) hard cap on the whole turn.
+3. **`_amounts_verified`** — every INR-shaped amount in the reply must appear in the concatenated `get_invoice` / `compare_invoices` ToolMessage content. `web_search` snippets are deliberately excluded from the whitelist; they're not authoritative number sources.
+
+If any guardrail fires, `answer()` returns `_FALLBACK_STRING` rather than risk quoting a fabricated amount.
+
+The deterministic fast-paths in `webhook/query.py` (`last_invoice_amount`, `greeting`, `start_invoice`) are kept — they're cheaper and more predictable than a tool-calling round trip for the most common questions.
 
 ### Webhook security
 
