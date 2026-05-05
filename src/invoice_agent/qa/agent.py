@@ -5,7 +5,6 @@ import re
 from typing import Iterable, Optional
 
 from langchain_core.messages import BaseMessage, HumanMessage, ToolMessage
-from langchain_core.runnables import Runnable, RunnableLambda
 from langgraph.prebuilt import create_react_agent
 
 from ..config import Settings, get_settings
@@ -76,31 +75,12 @@ def _amounts_verified(reply: str, messages: Iterable[BaseMessage]) -> bool:
     return reply_amounts.issubset(whitelist)
 
 
-class _RunnableChatAdapter(RunnableLambda):
-    """Adapter that wraps a non-Runnable chat-model duck (e.g. test stubs) so
-    create_react_agent's `prompt | model` pipe works. Forwards `bind_tools` to
-    the wrapped object, returning another adapter so the resulting binding is
-    still Runnable-compatible."""
-
-    def __init__(self, model):
-        super().__init__(model.invoke)
-        self._model = model
-
-    def bind_tools(self, tools, **kwargs):
-        bound = self._model.bind_tools(tools, **kwargs)
-        if isinstance(bound, Runnable):
-            return bound
-        return _RunnableChatAdapter(bound)
-
-
 def build_qa_agent(settings: Settings, *, llm=None):
     """Build a ReAct agent over the three QA tools.
 
     `llm` is injectable for tests; production passes None and gets ChatOllama.
     """
     chat = llm if llm is not None else make_chat(settings, temperature=0.4)
-    if not isinstance(chat, Runnable):
-        chat = _RunnableChatAdapter(chat)
     tools = [get_invoice, compare_invoices, web_search]
     return create_react_agent(
         chat,

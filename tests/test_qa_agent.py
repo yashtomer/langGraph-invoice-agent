@@ -6,26 +6,33 @@ from typing import Any
 
 import pytest
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
+from langchain_core.runnables import RunnableLambda
 
 from invoice_agent.db import init_db, mark_sent
 
 
-class FakeChatLLM:
+class FakeChatLLM(RunnableLambda):
     """Mimics ChatOllama enough for create_react_agent to drive a turn.
 
-    Scripted: each .invoke() returns the next AIMessage from `responses`.
-    Exposes .bind_tools() (returns self) so create_react_agent can call it.
+    Inherits from RunnableLambda so it satisfies create_react_agent's
+    `prompt | model` pipe requirement. .bind_tools returns self so the
+    agent's tool-binding doesn't drop us back to a non-Runnable.
     """
 
     def __init__(self, responses: list[AIMessage]):
+        super().__init__(self._invoke_impl)
         self._responses = list(responses)
         self.calls: list[list[BaseMessage]] = []
 
     def bind_tools(self, tools, **_):
         return self
 
-    def invoke(self, messages, config: Any = None, **_):
-        self.calls.append(list(messages))
+    def _invoke_impl(self, messages, **_):
+        # When invoked via Runnable .invoke, messages may be a PromptValue
+        # or a list[BaseMessage]; the agent calls our model with the post-
+        # prompt messages list.
+        msgs = messages.to_messages() if hasattr(messages, "to_messages") else list(messages)
+        self.calls.append(msgs)
         if not self._responses:
             return AIMessage("done")
         return self._responses.pop(0)
@@ -106,10 +113,12 @@ def test_answer_returns_fallback_when_agent_raises(tmp_settings, monkeypatch):
 
     init_db(tmp_settings)
 
-    class BoomLLM:
+    class BoomLLM(RunnableLambda):
+        def __init__(self):
+            super().__init__(self._boom)
         def bind_tools(self, *a, **kw):
             return self
-        def invoke(self, *a, **kw):
+        def _boom(self, *a, **kw):
             raise RuntimeError("kaboom")
 
     monkeypatch.setattr(agent_mod, "make_chat", lambda *a, **kw: BoomLLM())
