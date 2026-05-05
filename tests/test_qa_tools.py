@@ -105,3 +105,72 @@ def test_compare_invoices_neither_present(tmp_settings):
     assert out["previous"]["status"] == "not_found"
     assert out["amount_diff_inr"] is None
     assert out["same_project"] is False
+
+
+import respx
+from httpx import Response
+
+
+@respx.mock
+def test_web_search_parses_top_3_results(tmp_settings):
+    from invoice_agent.qa.tools import (
+        reset_web_search_budget,
+        web_search,
+    )
+    reset_web_search_budget()
+
+    respx.post("https://api.tavily.com/search").mock(
+        return_value=Response(200, json={
+            "results": [
+                {"title": "T1", "url": "https://a", "content": "snippet 1"},
+                {"title": "T2", "url": "https://b", "content": "snippet 2"},
+                {"title": "T3", "url": "https://c", "content": "snippet 3"},
+                {"title": "T4", "url": "https://d", "content": "snippet 4"},
+            ]
+        })
+    )
+
+    out = _invoke(web_search, query="GST IT services India")
+    assert isinstance(out, list)
+    assert len(out) == 3  # capped at top 3
+    assert out[0] == {"title": "T1", "url": "https://a", "snippet": "snippet 1"}
+
+
+@respx.mock
+def test_web_search_network_failure_returns_error(tmp_settings):
+    from invoice_agent.qa.tools import reset_web_search_budget, web_search
+    reset_web_search_budget()
+    respx.post("https://api.tavily.com/search").mock(return_value=Response(503))
+    out = _invoke(web_search, query="anything")
+    assert out == {"error": "search_unavailable"}
+
+
+@respx.mock
+def test_web_search_budget_blocks_after_5_calls(tmp_settings):
+    from invoice_agent.qa.tools import reset_web_search_budget, web_search
+    reset_web_search_budget()
+    respx.post("https://api.tavily.com/search").mock(
+        return_value=Response(200, json={"results": []})
+    )
+    for _ in range(5):
+        _invoke(web_search, query="x")
+    out = _invoke(web_search, query="x")  # 6th call
+    assert out == {"error": "search_budget_exceeded"}
+
+
+def test_web_search_no_api_key_returns_error(tmp_settings, monkeypatch):
+    """When Tavily key is missing the tool short-circuits without a network call."""
+    from invoice_agent.qa import tools as tools_mod
+    from invoice_agent.qa.tools import reset_web_search_budget, web_search
+    from pydantic import SecretStr
+    reset_web_search_budget()
+
+    # Patch the module-level get_settings used by web_search so we don't have
+    # to mutate the pydantic Settings instance in place.
+    class _NoKeySettings:
+        tavily_api_key = SecretStr("")
+        qa_web_search_max_calls_per_turn = 5
+    monkeypatch.setattr(tools_mod, "get_settings", lambda: _NoKeySettings())
+
+    out = _invoke(web_search, query="x")
+    assert out == {"error": "search_unavailable"}
