@@ -47,8 +47,12 @@ def append_turn(
     *,
     settings: Optional[Settings] = None,
 ) -> None:
-    """Insert two rows (user + assistant) atomically. SQLite serialises writes
-    so concurrent webhook calls won't collide on turn_idx."""
+    """Insert two rows (user + assistant) with monotonic turn_idx scoped per user.
+
+    The unique ``PRIMARY KEY (user_phone, turn_idx)`` is the actual safety net:
+    a concurrent appender that races and computes the same turn_idx fails fast
+    with ``IntegrityError`` rather than silently producing duplicates. In this
+    single-user bot that race is impossible in practice."""
     now = _now()
     with connect(settings) as conn:
         cur = conn.execute(
