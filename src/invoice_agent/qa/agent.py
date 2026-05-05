@@ -2,9 +2,26 @@
 from __future__ import annotations
 
 import re
-from typing import Iterable
+from typing import Iterable, Optional
 
-from langchain_core.messages import BaseMessage, ToolMessage
+from langchain_core.messages import BaseMessage, HumanMessage, ToolMessage
+from langchain_core.runnables import Runnable, RunnableLambda
+from langgraph.prebuilt import create_react_agent
+
+from ..config import Settings, get_settings
+from ..logging_setup import get_logger
+from ..tools.llm import make_chat
+from .memory import append_turn, load_recent_turns, trim_old
+from .prompts import QA_SYSTEM
+from .tools import compare_invoices, get_invoice, reset_web_search_budget, web_search
+
+log = get_logger(__name__)
+
+_FALLBACK_STRING = (
+    "Sorry, something went wrong on my end. You can ask me "
+    "'what was my last invoice amount?'"
+)
+_MAX_HISTORY_TRIM = 20  # rows kept per user after trim
 
 # Match large numbers with optional Indian/Western thousand separators.
 # Examples matched: 200000, 2,00,000, 200,000, 1,45,000
@@ -57,3 +74,69 @@ def _amounts_verified(reply: str, messages: Iterable[BaseMessage]) -> bool:
     )
     whitelist = _extract_amounts(whitelist_text)
     return reply_amounts.issubset(whitelist)
+
+
+class _RunnableChatAdapter(RunnableLambda):
+    """Adapter that wraps a non-Runnable chat-model duck (e.g. test stubs) so
+    create_react_agent's `prompt | model` pipe works. Forwards `bind_tools` to
+    the wrapped object, returning another adapter so the resulting binding is
+    still Runnable-compatible."""
+
+    def __init__(self, model):
+        super().__init__(model.invoke)
+        self._model = model
+
+    def bind_tools(self, tools, **kwargs):
+        bound = self._model.bind_tools(tools, **kwargs)
+        if isinstance(bound, Runnable):
+            return bound
+        return _RunnableChatAdapter(bound)
+
+
+def build_qa_agent(settings: Settings, *, llm=None):
+    """Build a ReAct agent over the three QA tools.
+
+    `llm` is injectable for tests; production passes None and gets ChatOllama.
+    """
+    chat = llm if llm is not None else make_chat(settings, temperature=0.4)
+    if not isinstance(chat, Runnable):
+        chat = _RunnableChatAdapter(chat)
+    tools = [get_invoice, compare_invoices, web_search]
+    return create_react_agent(
+        chat,
+        tools=tools,
+        prompt=QA_SYSTEM.format(company=settings.company_name),
+    )
+
+
+def answer(text: str, user_phone: str, *, settings: Optional[Settings] = None) -> str:
+    """Synchronous entry point. Caller (webhook) should wrap in
+    asyncio.to_thread() to keep the event loop responsive."""
+    s = settings or get_settings()
+    reset_web_search_budget()
+
+    history = load_recent_turns(user_phone, n=s.qa_chat_memory_turns, settings=s)
+    try:
+        agent = build_qa_agent(s)
+        result = agent.invoke(
+            {"messages": history + [HumanMessage(text)]},
+            config={"recursion_limit": 8},
+        )
+    except Exception as e:  # noqa: BLE001
+        log.warning("qa.invoke_failed", err=str(e), user_phone=user_phone)
+        return _FALLBACK_STRING
+
+    msgs = result.get("messages", [])
+    reply_msg = msgs[-1] if msgs else None
+    reply = reply_msg.content if reply_msg is not None else ""
+    if not isinstance(reply, str):
+        reply = str(reply)
+
+    if not _amounts_verified(reply, msgs):
+        log.warning("qa.amount_unverified", reply_preview=reply[:80])
+        return _FALLBACK_STRING
+
+    append_turn(user_phone, text, reply, settings=s)
+    trim_old(user_phone, keep=_MAX_HISTORY_TRIM, settings=s)
+    log.info("qa.turn_complete", user_phone=user_phone)
+    return reply
