@@ -87,8 +87,12 @@ def llm_says_generic_question(monkeypatch):
     monkeypatch.setattr(
         llm_mod, "make_chat", lambda **_: _fake_llm_returning("generic_question")
     )
-    # Stub chat_reply so we don't actually need a live LLM for the chat fallback.
-    monkeypatch.setattr(query_mod, "chat_reply", lambda text, settings=None: f"chat:{text}")
+    # Stub the QA agent's answer() so we don't run a real ReAct loop.
+    import invoice_agent.qa as qa_pkg
+    from invoice_agent.qa import agent as qa_agent_mod
+    fake = lambda text, user_phone, settings=None: f"qa:{text}"
+    monkeypatch.setattr(qa_agent_mod, "answer", fake)
+    monkeypatch.setattr(qa_pkg, "answer", fake)
 
 
 def test_empty_input_short_circuits_without_llm(tmp_settings, monkeypatch):
@@ -187,10 +191,10 @@ def test_start_invoice_triggers_runner_and_returns_empty(tmp_settings, monkeypat
     assert "May" in body and "Starting" in body
 
 
-def test_generic_question_uses_chat_reply(tmp_settings, llm_says_generic_question):
+def test_generic_question_uses_qa_agent(tmp_settings, llm_says_generic_question):
     init_db(tmp_settings)
-    answer = try_answer("what can you do", settings=tmp_settings)
-    assert answer == "chat:what can you do"
+    answer = try_answer("what can you do", user_phone="91XXX", settings=tmp_settings)
+    assert answer == "qa:what can you do"
 
 
 def test_generic_question_suppressed_during_active_flow(

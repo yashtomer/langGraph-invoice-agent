@@ -3,7 +3,8 @@
 Uses the LLM intent classifier (``tools.llm.parse_query_intent``) to route
 inbound messages. Deterministic handlers cover ``last_invoice_amount`` and
 ``greeting``; ``start_invoice`` triggers a fresh flow for the requested month;
-``generic_question`` falls back to ``chat_reply`` for open-ended chit-chat.
+``generic_question`` is delegated to the Q&A tool-calling agent
+(``qa.answer``) for open-ended invoice-history questions.
 
 Active-flow guard: ``generic_question`` is suppressed when any month is
 mid-conversation (``status == 'started'``) so a project-name or approval reply
@@ -18,13 +19,13 @@ from ..config import Settings, get_settings
 from ..db import get_active_month, get_last_sent
 from ..logging_setup import get_logger
 from ..qa.util import normalize_target_month as _normalize_target_month  # re-export
-from ..tools.llm import QueryIntent, chat_reply, parse_query_intent
+from ..tools.llm import QueryIntent, parse_query_intent
 from ..tools.pdf import _month_label, fmt_inr
 from ..tools.whatsapp import WhatsAppClient
 
 log = get_logger(__name__)
 
-IntentHandler = Callable[[str, QueryIntent, Settings], Optional[str]]
+IntentHandler = Callable[..., Optional[str]]
 
 
 def _last_invoice_amount(_text: str, _intent: QueryIntent, s: Settings) -> str:
@@ -45,8 +46,10 @@ def _greeting(_text: str, _intent: QueryIntent, s: Settings) -> str:
     )
 
 
-def _generic_question(text: str, _intent: QueryIntent, s: Settings) -> str:
-    return chat_reply(text, settings=s)
+def _generic_question(text: str, _intent: QueryIntent, s: Settings,
+                     *, user_phone: str) -> str:
+    from ..qa import answer as qa_answer  # local import: avoid cycle
+    return qa_answer(text, user_phone, settings=s)
 
 
 def _start_invoice(_text: str, intent: QueryIntent, s: Settings) -> str:
@@ -89,10 +92,14 @@ _INTENT_HANDLERS: dict[str, IntentHandler] = {
 }
 
 
-def try_answer(text: str, *, settings: Optional[Settings] = None) -> Optional[str]:
+def try_answer(
+    text: str,
+    *,
+    user_phone: str = "",
+    settings: Optional[Settings] = None,
+) -> Optional[str]:
     """Return a reply string, an empty string (matched but reply already sent),
-    or ``None`` (no intent matched — webhook should fall through to flow router).
-    """
+    or ``None`` (no intent matched — webhook should fall through to flow router)."""
     if not text or not text.strip():
         return None
     s = settings or get_settings()
@@ -111,4 +118,8 @@ def try_answer(text: str, *, settings: Optional[Settings] = None) -> Optional[st
             return None
 
     handler = _INTENT_HANDLERS.get(intent.intent)
-    return handler(text, intent, s) if handler else None
+    if handler is None:
+        return None
+    if intent.intent == "generic_question":
+        return handler(text, intent, s, user_phone=user_phone)
+    return handler(text, intent, s)
