@@ -11,6 +11,7 @@ Two entry points are needed:
 """
 from __future__ import annotations
 
+import sqlite3
 from typing import Optional
 
 from .config import Settings, get_settings
@@ -30,14 +31,43 @@ def _final_status(snapshot_values: dict) -> str:
     return "started"
 
 
-def start_for_month(month: str, *, settings: Optional[Settings] = None) -> dict:
+def _reset_thread_state(month: str, *, settings: Settings) -> None:
+    """Wipe LangGraph checkpoints + invoice_history row for a month.
+
+    Used when ``start_for_month`` is called with ``force=True`` so a re-trigger
+    starts from scratch instead of resuming a finished thread.
+    """
+    thread_id = f"invoice-{month}"
+    with sqlite3.connect(str(settings.db_path)) as con:
+        con.execute("DELETE FROM checkpoints WHERE thread_id = ?", (thread_id,))
+        con.execute("DELETE FROM writes WHERE thread_id = ?", (thread_id,))
+        con.execute("DELETE FROM invoice_history WHERE month = ?", (month,))
+        con.commit()
+    log.info("runner.thread_reset", month=month, thread_id=thread_id)
+
+
+def start_for_month(
+    month: str,
+    *,
+    force: bool = False,
+    settings: Optional[Settings] = None,
+) -> dict:
     """Begin (or resume from the start) the invoice flow for ``month``.
 
-    Returns the post-invoke state values dict. Idempotent: if the month is
-    already marked 'sent', this is a no-op.
+    With ``force=False`` (the default, used by the scheduler), this is
+    idempotent: a month already marked 'sent' is a no-op so a misfired cron
+    can't double-send.
+
+    With ``force=True`` (used by manual ``/trigger``), the existing thread
+    state is wiped and the flow restarts from scratch, even if the month was
+    already sent.
+
+    Returns the post-invoke state values dict.
     """
     s = settings or get_settings()
-    if already_sent(month, settings=s):
+    if force:
+        _reset_thread_state(month, settings=s)
+    elif already_sent(month, settings=s):
         log.info("runner.skip.already_sent", month=month)
         return {"skipped": True, "month": month}
 
@@ -80,6 +110,9 @@ def resume_with_reply(month: str, reply_text: str, *, settings: Optional[Setting
             month,
             project_name=snap.values.get("project_name"),
             pdf_path=snap.values.get("pdf_path"),
+            amount_inr=snap.values.get("invoice_amount_inr"),
+            attendance_days=snap.values.get("attendance_days"),
+            invoice_number=snap.values.get("invoice_number"),
             settings=s,
         )
     else:

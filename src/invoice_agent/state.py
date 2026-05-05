@@ -5,6 +5,7 @@ from typing import Literal, Optional, TypedDict
 
 
 ApprovalStatus = Literal["approved", "rejected", "change_requested"]
+SummaryStatus = Literal["pending", "approved", "change_requested"]
 
 
 class InvoiceState(TypedDict, total=False):
@@ -19,6 +20,12 @@ class InvoiceState(TypedDict, total=False):
     project_name: Optional[str]
     new_project_name: Optional[str]
     approval_status: Optional[ApprovalStatus]
+
+    # Per-invoice fields (auto-defaulted from settings/month; user can override
+    # in the summary-confirmation step before PDF generation).
+    invoice_amount_inr: Optional[int]
+    attendance_days: Optional[int]
+    summary_status: Optional[SummaryStatus]
 
     # Artifacts
     pdf_path: Optional[str]
@@ -37,6 +44,9 @@ def initial_state(invoice_month: str, user_phone: str) -> InvoiceState:
         project_name=None,
         new_project_name=None,
         approval_status=None,
+        invoice_amount_inr=None,
+        attendance_days=None,
+        summary_status=None,
         pdf_path=None,
         invoice_number=None,
         accounts_email_sent=False,

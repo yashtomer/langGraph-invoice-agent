@@ -52,6 +52,27 @@ def test_heuristic_directly():
     assert _heuristic_query("yes send it").intent == "none"
 
 
+def test_heuristic_start_invoice():
+    out = _heuristic_query("send invoice for may")
+    assert out.intent == "start_invoice"
+    assert out.target_month == "may"
+    out = _heuristic_query("i want to send invoice for june 2026")
+    assert out.intent == "start_invoice"
+    assert out.target_month == "june 2026"
+    out = _heuristic_query("trigger this month invoice")
+    assert out.intent == "start_invoice"
+    assert out.target_month == "this month"
+    out = _heuristic_query("invoice bana do")
+    assert out.intent == "start_invoice"
+    assert out.target_month == "current"
+    out = _heuristic_query("create previous month invoice")
+    assert out.intent == "start_invoice"
+    assert out.target_month == "previous month"
+    # Approval-shaped phrases without 'invoice'/'bill' must NOT trip start_invoice.
+    assert _heuristic_query("haan bhej do").intent == "none"
+    assert _heuristic_query("yes send it").intent == "none"
+
+
 def test_heuristic_greetings():
     for g in ["hi", "Hii", "hello", "Hey!", "namaste", "good morning", "kaise ho"]:
         assert _heuristic_query(g).intent == "greeting", g

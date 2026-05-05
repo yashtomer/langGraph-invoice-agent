@@ -36,7 +36,9 @@ from .nodes.generate_pdf import generate_pdf
 from .nodes.notify import confirm_to_user, notify_cancelled
 from .nodes.parse_approval import parse_approval
 from .nodes.parse_project import parse_project_reply
+from .nodes.parse_summary import parse_summary
 from .nodes.send_preview import send_preview
+from .nodes.send_summary import send_summary
 from .state import InvoiceState
 
 
@@ -50,12 +52,19 @@ def _route_after_approval(state: InvoiceState) -> str:
     return "notify_cancelled"
 
 
+def _route_after_summary(state: InvoiceState) -> str:
+    """approved -> generate_pdf; otherwise loop back to send_summary."""
+    return "generate_pdf" if state.get("summary_status") == "approved" else "send_summary"
+
+
 def build_graph_definition() -> StateGraph:
     """Build the StateGraph (without compiling) — useful for inspection/testing."""
     g: StateGraph = StateGraph(InvoiceState)
 
     g.add_node("ask_project_name", ask_project_name)
     g.add_node("parse_project_reply", parse_project_reply)
+    g.add_node("send_summary", send_summary)
+    g.add_node("parse_summary", parse_summary)
     g.add_node("generate_pdf", generate_pdf)
     g.add_node("send_preview", send_preview)
     g.add_node("parse_approval", parse_approval)
@@ -67,9 +76,20 @@ def build_graph_definition() -> StateGraph:
 
     # Linear edges
     g.add_edge("ask_project_name", "parse_project_reply")
-    g.add_edge("parse_project_reply", "generate_pdf")
+    g.add_edge("parse_project_reply", "send_summary")
+    g.add_edge("send_summary", "parse_summary")
     g.add_edge("generate_pdf", "send_preview")
     g.add_edge("send_preview", "parse_approval")
+
+    # Branch after summary parse: approved -> generate_pdf, else loop back to send_summary
+    g.add_conditional_edges(
+        "parse_summary",
+        _route_after_summary,
+        {
+            "generate_pdf": "generate_pdf",
+            "send_summary": "send_summary",
+        },
+    )
 
     # Branch after parsing approval
     g.add_conditional_edges(
@@ -107,7 +127,7 @@ def compile_graph(checkpointer: SqliteSaver, *, interrupt_after: Optional[list[s
     pauses, the WhatsApp prompt goes out, and the FastAPI webhook can resume
     the thread once the user replies.
     """
-    interrupt_after = interrupt_after or ["ask_project_name", "send_preview"]
+    interrupt_after = interrupt_after or ["ask_project_name", "send_summary", "send_preview"]
     g = build_graph_definition()
     return g.compile(checkpointer=checkpointer, interrupt_after=interrupt_after)
 

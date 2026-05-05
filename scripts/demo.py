@@ -42,7 +42,7 @@ from invoice_agent.config import get_settings  # noqa: E402
 from invoice_agent.graph import compile_graph, thread_config  # noqa: E402
 from invoice_agent.state import initial_state  # noqa: E402
 from invoice_agent.tools import llm as llm_mod  # noqa: E402
-from invoice_agent.tools.llm import ApprovalDecision, ProjectReply  # noqa: E402
+from invoice_agent.tools.llm import ApprovalDecision, ProjectReply, SummaryReply  # noqa: E402
 
 
 def _stub_llm(decisions: list[ApprovalDecision], project: str = "Birla Opus") -> None:
@@ -54,6 +54,8 @@ def _stub_llm(decisions: list[ApprovalDecision], project: str = "Birla Opus") ->
                 def invoke(_self, _messages):
                     if schema is ProjectReply:
                         return ProjectReply(project_name=project)
+                    if schema is SummaryReply:
+                        return SummaryReply(status="approved")
                     return queue.pop(0)
             return _Inner()
 
@@ -68,12 +70,14 @@ def _stub_io(out_dir: Path):
     import invoice_agent.nodes.generate_pdf as gp
     import invoice_agent.nodes.notify as nt
     import invoice_agent.nodes.send_preview as sp
+    import invoice_agent.nodes.send_summary as ss
 
     ap.WhatsAppClient = lambda *a, **kw: fake_wa  # type: ignore[assignment]
+    ss.WhatsAppClient = lambda *a, **kw: fake_wa  # type: ignore[assignment]
     sp.WhatsAppClient = lambda *a, **kw: fake_wa  # type: ignore[assignment]
     nt.WhatsAppClient = lambda *a, **kw: fake_wa  # type: ignore[assignment]
 
-    def _fake_render(project_name, month, settings=None):
+    def _fake_render(project_name, month, *, amount_inr=None, attendance_days=None, settings=None):
         p = out_dir / f"invoice_{month}_{project_name.replace(' ', '_').lower()}.pdf"
         p.write_bytes(b"%PDF-1.4 demo")
         return p
@@ -117,9 +121,9 @@ SCENARIOS = {
 }
 
 SCENARIO_REPLIES = {
-    "approve": ["Birla Opus", "haan bhej do"],
-    "reject": ["Birla Opus", "nahi ruk"],
-    "change": ["Birla Opus", "change to DLF Camellias", "ok bhejo"],
+    "approve": ["Birla Opus", "approve", "haan bhej do"],
+    "reject": ["Birla Opus", "approve", "nahi ruk"],
+    "change": ["Birla Opus", "approve", "change to DLF Camellias", "ok bhejo"],
 }
 
 
