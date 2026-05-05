@@ -62,3 +62,40 @@ def test_no_tool_messages_fails_when_reply_has_amount():
     # LLM hallucinated a number with no tool to back it up.
     msgs = [HumanMessage("hello"), AIMessage("you billed 50000")]
     assert _amounts_verified("you billed 50000", msgs) is False
+
+
+import time
+
+import pytest
+from langchain_core.messages import AIMessage, BaseMessage
+from langchain_core.runnables import RunnableLambda
+
+
+class SlowLLM(RunnableLambda):
+    def __init__(self):
+        super().__init__(self._slow)
+    def bind_tools(self, *a, **kw):
+        return self
+    def _slow(self, messages, **_):
+        time.sleep(2.0)
+        return AIMessage("eventually")
+
+
+def test_answer_times_out_with_slow_llm(tmp_settings, monkeypatch):
+    from invoice_agent.db import init_db
+    from invoice_agent.qa import agent as agent_mod
+    from invoice_agent.qa.tools import reset_web_search_budget
+    reset_web_search_budget()
+
+    init_db(tmp_settings)
+    monkeypatch.setattr(agent_mod, "make_chat", lambda *a, **kw: SlowLLM())
+    # Force a tight timeout so the test finishes fast.
+    monkeypatch.setattr(
+        type(tmp_settings),
+        "qa_invoke_timeout_seconds",
+        property(lambda self: 0.1),
+        raising=False,
+    )
+
+    reply = agent_mod.answer("hi", "91XXX", settings=tmp_settings)
+    assert reply == agent_mod._FALLBACK_STRING

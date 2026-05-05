@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from typing import Iterable, Optional
 
 from langchain_core.messages import BaseMessage, HumanMessage, ToolMessage
@@ -96,15 +97,26 @@ def answer(text: str, user_phone: str, *, settings: Optional[Settings] = None) -
     reset_web_search_budget()
 
     history = load_recent_turns(user_phone, n=s.qa_chat_memory_turns, settings=s)
+    ex = ThreadPoolExecutor(max_workers=1)
     try:
         agent = build_qa_agent(s)
-        result = agent.invoke(
+        future = ex.submit(
+            agent.invoke,
             {"messages": history + [HumanMessage(text)]},
             config={"recursion_limit": 8},
         )
+        result = future.result(timeout=s.qa_invoke_timeout_seconds)
+    except FuturesTimeoutError:
+        log.warning("qa.timeout", user_phone=user_phone)
+        return _FALLBACK_STRING
     except Exception as e:  # noqa: BLE001
         log.warning("qa.invoke_failed", err=str(e), user_phone=user_phone)
         return _FALLBACK_STRING
+    finally:
+        # wait=False so a stuck LLM thread doesn't block our return.
+        # Python can't actually kill the thread; it'll complete on its own
+        # and the result is discarded harmlessly.
+        ex.shutdown(wait=False)
 
     msgs = result.get("messages", [])
     reply_msg = msgs[-1] if msgs else None
