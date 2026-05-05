@@ -110,6 +110,9 @@ def resume_with_reply(month: str, reply_text: str, *, settings: Optional[Setting
             month,
             project_name=snap.values.get("project_name"),
             pdf_path=snap.values.get("pdf_path"),
+            amount_inr=snap.values.get("invoice_amount_inr"),
+            attendance_days=snap.values.get("attendance_days"),
+            invoice_number=snap.values.get("invoice_number"),
             settings=s,
         )
     else:
