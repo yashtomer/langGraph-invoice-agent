@@ -55,3 +55,53 @@ def test_get_invoice_does_not_raise_on_unknown_token(tmp_settings):
     # Unknown tokens fall back to today's month per normalize_target_month.
     out = _invoke(get_invoice, month="garbage")
     assert "status" in out  # either 'not_found' or a real status, never raises
+
+
+def test_compare_invoices_both_present(tmp_settings):
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    from invoice_agent.qa.tools import compare_invoices
+
+    init_db(tmp_settings)
+    today = datetime.now(ZoneInfo("Asia/Kolkata"))
+    cur = today.strftime("%Y-%m")
+    y, m = today.year, today.month - 1
+    if m == 0:
+        y, m = y - 1, 12
+    prev = f"{y:04d}-{m:02d}"
+
+    mark_sent(cur, project_name="A", amount_inr=200000, settings=tmp_settings)
+    mark_sent(prev, project_name="A", amount_inr=150000, settings=tmp_settings)
+
+    out = _invoke(compare_invoices)
+    assert out["current"]["amount_inr"] == 200000
+    assert out["previous"]["amount_inr"] == 150000
+    assert out["amount_diff_inr"] == 50000
+    assert out["same_project"] is True
+
+
+def test_compare_invoices_one_missing(tmp_settings):
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    from invoice_agent.qa.tools import compare_invoices
+
+    init_db(tmp_settings)
+    today = datetime.now(ZoneInfo("Asia/Kolkata"))
+    cur = today.strftime("%Y-%m")
+    mark_sent(cur, project_name="A", amount_inr=200000, settings=tmp_settings)
+
+    out = _invoke(compare_invoices)
+    assert out["current"]["amount_inr"] == 200000
+    assert out["previous"]["status"] == "not_found"
+    assert out["amount_diff_inr"] is None
+    assert out["same_project"] is False
+
+
+def test_compare_invoices_neither_present(tmp_settings):
+    from invoice_agent.qa.tools import compare_invoices
+    init_db(tmp_settings)
+    out = _invoke(compare_invoices)
+    assert out["current"]["status"] == "not_found"
+    assert out["previous"]["status"] == "not_found"
+    assert out["amount_diff_inr"] is None
+    assert out["same_project"] is False

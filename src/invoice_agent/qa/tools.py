@@ -57,3 +57,35 @@ def get_invoice(month: str) -> dict:
     month, returns {month, status: 'not_found'} — say so plainly.
     """
     return _get_invoice_impl(month)
+
+
+@tool
+def compare_invoices() -> dict:
+    """Compare THIS user's current month vs previous month invoices.
+    Use for questions like 'is that more than last month?', 'higher',
+    'difference', 'same as last month'. No arguments.
+
+    Returns:
+      {current: {...same shape as get_invoice...},
+       previous: {...},
+       amount_diff_inr: current.amount_inr - previous.amount_inr (None if either missing),
+       same_project: bool (False if either missing)}
+    """
+    s = get_settings()
+    cur = _get_invoice_impl("current", settings=s)
+    prev = _get_invoice_impl("previous", settings=s)
+    cur_amt = cur.get("amount_inr") if cur.get("status") != "not_found" else None
+    prev_amt = prev.get("amount_inr") if prev.get("status") != "not_found" else None
+    diff = (cur_amt - prev_amt) if (cur_amt is not None and prev_amt is not None) else None
+    same_project = (
+        cur.get("status") != "not_found"
+        and prev.get("status") != "not_found"
+        and cur.get("project_name") == prev.get("project_name")
+        and cur.get("project_name") is not None
+    )
+    return {
+        "current": cur,
+        "previous": prev,
+        "amount_diff_inr": diff,
+        "same_project": same_project,
+    }
