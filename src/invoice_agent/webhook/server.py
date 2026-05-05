@@ -14,6 +14,7 @@ auto-start a flow from a random user message.
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 from datetime import datetime
@@ -109,7 +110,11 @@ def build_router(settings: Optional[Settings] = None) -> APIRouter:
         # Empty-string return means "intent matched, the handler already sent
         # any user-facing message itself" (e.g. start_invoice triggers the
         # graph which sends the template — no extra reply needed).
-        answer = try_answer(text, settings=s)
+        # Run in a worker thread because the QA agent path can take seconds —
+        # we don't want to stall FastAPI's event loop.
+        answer = await asyncio.to_thread(
+            try_answer, text, user_phone=from_phone or "", settings=s
+        )
         if answer is not None:
             if answer:
                 with WhatsAppClient(s) as wa:
