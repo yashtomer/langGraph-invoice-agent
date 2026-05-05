@@ -12,14 +12,12 @@ fallback.
 """
 from __future__ import annotations
 
-import calendar
-from datetime import datetime
 from typing import Callable, Optional
-from zoneinfo import ZoneInfo
 
 from ..config import Settings, get_settings
 from ..db import get_active_month, get_last_sent
 from ..logging_setup import get_logger
+from ..qa.util import normalize_target_month as _normalize_target_month  # re-export
 from ..tools.llm import QueryIntent, chat_reply, parse_query_intent
 from ..tools.pdf import _month_label, fmt_inr
 from ..tools.whatsapp import WhatsAppClient
@@ -27,58 +25,6 @@ from ..tools.whatsapp import WhatsAppClient
 log = get_logger(__name__)
 
 IntentHandler = Callable[[str, QueryIntent, Settings], Optional[str]]
-
-_MONTH_NAMES = {
-    "january": 1, "february": 2, "march": 3, "april": 4,
-    "may": 5, "june": 6, "july": 7, "august": 8,
-    "september": 9, "october": 10, "november": 11, "december": 12,
-}
-
-
-def _today(tz: str) -> datetime:
-    return datetime.now(ZoneInfo(tz))
-
-
-def _normalize_target_month(token: Optional[str], tz: str) -> str:
-    """Resolve a free-form month token to ``YYYY-MM``.
-
-    Accepts: ``YYYY-MM``, ``"may"`` / ``"may 2026"``, ``"this month"``,
-    ``"current"``, ``"previous month"`` / ``"last month"``, ``"next month"``.
-    Falls back to today's month when the token is empty or unrecognised.
-    """
-    today = _today(tz)
-    if not token:
-        return today.strftime("%Y-%m")
-    t = token.strip().lower()
-
-    # YYYY-MM literal
-    if len(t) == 7 and t[4] == "-" and t[:4].isdigit() and t[5:].isdigit():
-        return t
-
-    # Relative phrases
-    if t in ("current", "this month", "this", "now"):
-        return today.strftime("%Y-%m")
-    if t in ("previous month", "last month", "previous", "last"):
-        y, m = today.year, today.month - 1
-        if m == 0:
-            y, m = y - 1, 12
-        return f"{y:04d}-{m:02d}"
-    if t in ("next month", "next"):
-        y, m = today.year, today.month + 1
-        if m == 13:
-            y, m = y + 1, 1
-        return f"{y:04d}-{m:02d}"
-
-    # "may" or "may 2026"
-    parts = t.split()
-    name = parts[0]
-    if name in _MONTH_NAMES:
-        mon = _MONTH_NAMES[name]
-        year = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else today.year
-        return f"{year:04d}-{mon:02d}"
-
-    log.warning("query.normalize_target_month.unrecognised", token=token)
-    return today.strftime("%Y-%m")
 
 
 def _last_invoice_amount(_text: str, _intent: QueryIntent, s: Settings) -> str:
