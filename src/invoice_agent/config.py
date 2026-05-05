@@ -49,6 +49,13 @@ class Settings(BaseSettings):
     webhook_port: int = 8000
     webhook_shared_secret: SecretStr = SecretStr("")
 
+    # QA agent
+    tavily_api_key: SecretStr = SecretStr("")
+    qa_chat_memory_turns: int = 6
+    qa_web_search_max_calls_per_turn: int = 5
+    qa_web_search_daily_cap: int = 0  # 0 = disabled
+    qa_invoke_timeout_seconds: float = 30.0
+
     # DB
     sqlite_path: str = "./data/invoice_agent.db"
 

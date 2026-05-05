@@ -26,6 +26,7 @@ os.environ.setdefault("ACCOUNTS_EMAIL", "accounts@example.com")
 os.environ.setdefault("CC_EMAIL", "yash@example.com")
 os.environ.setdefault("COMPANY_NAME", "Test Co.")
 os.environ.setdefault("INVOICE_AMOUNT_INR", "150000")
+os.environ.setdefault("TAVILY_API_KEY", "test-tavily-key")
 os.environ.setdefault("WEBHOOK_SHARED_SECRET", "shh")
 
 
