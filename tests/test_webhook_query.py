@@ -88,11 +88,8 @@ def llm_says_generic_question(monkeypatch):
         llm_mod, "make_chat", lambda **_: _fake_llm_returning("generic_question")
     )
     # Stub the QA agent's answer() so we don't run a real ReAct loop.
-    import invoice_agent.qa as qa_pkg
     from invoice_agent.qa import agent as qa_agent_mod
-    fake = lambda text, user_phone, settings=None: f"qa:{text}"
-    monkeypatch.setattr(qa_agent_mod, "answer", fake)
-    monkeypatch.setattr(qa_pkg, "answer", fake)
+    monkeypatch.setattr(qa_agent_mod, "answer", lambda text, user_phone, settings=None: f"qa:{text}")
 
 
 def test_empty_input_short_circuits_without_llm(tmp_settings, monkeypatch):

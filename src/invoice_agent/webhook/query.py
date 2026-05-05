@@ -48,7 +48,7 @@ def _greeting(_text: str, _intent: QueryIntent, s: Settings) -> str:
 
 def _generic_question(text: str, _intent: QueryIntent, s: Settings,
                      *, user_phone: str) -> str:
-    from ..qa import answer as qa_answer  # local import: avoid cycle
+    from ..qa.agent import answer as qa_answer  # local import: avoid cycle
     return qa_answer(text, user_phone, settings=s)
 
 
