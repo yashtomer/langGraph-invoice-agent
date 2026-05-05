@@ -23,7 +23,7 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, FastAPI, Header, HTTPException, Query, Request, status
 
 from ..config import Settings, get_settings
-from ..db import get_status
+from ..db import get_active_month
 from ..logging_setup import configure_logging, get_logger
 from ..runner import resume_with_reply, start_for_month
 from ..tools.whatsapp import WhatsAppClient
@@ -106,17 +106,34 @@ def build_router(settings: Optional[Settings] = None) -> APIRouter:
 
         # Free-form question intercept (runs before flow routing so a query
         # mid-flow doesn't get consumed as a project-name / approval reply).
+        # Empty-string return means "intent matched, the handler already sent
+        # any user-facing message itself" (e.g. start_invoice triggers the
+        # graph which sends the template — no extra reply needed).
         answer = try_answer(text, settings=s)
         if answer is not None:
-            with WhatsAppClient(s) as wa:
-                wa.send_text(to=from_phone, body=answer)
+            if answer:
+                with WhatsAppClient(s) as wa:
+                    wa.send_text(to=from_phone, body=answer)
             log.info("webhook.query_answered", text_preview=text[:80])
             return {"ok": True, "answered": True}
 
-        month = _current_month(s.timezone)
-        if get_status(month, settings=s) is None:
-            log.info("webhook.no_active_flow", month=month)
-            return {"ok": True, "ignored": "no active flow for current month"}
+        # Route to the active 'started' flow (regardless of calendar month) so a
+        # flow triggered for a future month still gets the user's reply.
+        month = get_active_month(settings=s)
+        if month is None:
+            # No active flow AND no query intent matched — never silently drop a
+            # message from the authorized user. Send a friendly fallback so they
+            # always know the bot is alive.
+            fallback = (
+                "I didn't catch that. You can ask me things like:\n"
+                "  • \"what is my last invoice amount\"\n"
+                "  • \"hi\" for help\n"
+                "Or wait for the monthly invoice nudge on the 25th."
+            )
+            with WhatsAppClient(s) as wa:
+                wa.send_text(to=from_phone, body=fallback)
+            log.info("webhook.fallback_no_active_flow", text_preview=text[:80])
+            return {"ok": True, "fallback_sent": True}
 
         result = resume_with_reply(month, text, settings=s)
         return {"ok": True, "month": month, "approval_status": result.get("approval_status")}

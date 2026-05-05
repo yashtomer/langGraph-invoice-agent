@@ -82,3 +82,56 @@ def test_trigger_requires_shared_secret(tmp_settings):
     client = TestClient(app)
     r = client.post("/trigger")
     assert r.status_code == 401
+
+
+def test_webhook_sends_fallback_when_no_active_flow(tmp_settings, monkeypatch):
+    """Authorized user texts something the bot doesn't understand and no flow
+    is in progress — fallback reply must go out, never silently dropped."""
+    import json
+    from unittest.mock import MagicMock
+
+    import respx
+    from httpx import Response
+
+    from invoice_agent.db import init_db
+    from invoice_agent.tools import llm as llm_mod
+    from invoice_agent.tools.llm import QueryIntent
+
+    init_db(tmp_settings)
+
+    fake = MagicMock()
+    structured = MagicMock()
+    structured.invoke.return_value = QueryIntent(intent="none")
+    fake.with_structured_output.return_value = structured
+    monkeypatch.setattr(llm_mod, "make_chat", lambda **_: fake)
+
+    app = create_app(tmp_settings)
+    client = TestClient(app)
+
+    with respx.mock() as mock:
+        sent = mock.post(
+            f"https://graph.facebook.com/v21.0/{tmp_settings.meta_wa_phone_number_id}/messages"
+        ).mock(return_value=Response(200, json={"messages": [{"id": "wamid.test"}]}))
+
+        body = json.dumps({
+            "entry": [{
+                "changes": [{
+                    "value": {
+                        "messages": [
+                            {"from": "919999999999", "type": "text", "text": {"body": "asdfqwer"}}
+                        ]
+                    }
+                }]
+            }]
+        }).encode()
+        sig = "sha256=" + hmac.new(
+            tmp_settings.meta_wa_app_secret.get_secret_value().encode(), body, hashlib.sha256
+        ).hexdigest()
+        r = client.post("/webhook", content=body, headers={"X-Hub-Signature-256": sig})
+
+        assert r.status_code == 200
+        assert r.json() == {"ok": True, "fallback_sent": True}
+        assert sent.called
+        sent_body = json.loads(sent.calls.last.request.content)
+        assert sent_body["type"] == "text"
+        assert "didn't catch" in sent_body["text"]["body"].lower()

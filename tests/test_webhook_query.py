@@ -42,9 +42,13 @@ def _sign(body: bytes, secret: str) -> str:
 
 
 def _fake_llm_returning(intent: str):
+    return _fake_llm_returning_intent(intent)
+
+
+def _fake_llm_returning_intent(intent: str, **extra):
     fake = MagicMock()
     structured = MagicMock()
-    structured.invoke.return_value = QueryIntent(intent=intent)  # type: ignore[arg-type]
+    structured.invoke.return_value = QueryIntent(intent=intent, **extra)  # type: ignore[arg-type]
     fake.with_structured_output.return_value = structured
     return fake
 
@@ -64,6 +68,18 @@ def llm_says_last_invoice_amount(monkeypatch):
 @pytest.fixture
 def llm_says_greeting(monkeypatch):
     monkeypatch.setattr(llm_mod, "make_chat", lambda **_: _fake_llm_returning("greeting"))
+
+
+@pytest.fixture
+def llm_says_start_invoice_for(monkeypatch):
+    """Factory fixture: parameterised by target_month token."""
+    def _setup(token: str):
+        monkeypatch.setattr(
+            llm_mod,
+            "make_chat",
+            lambda **_: _fake_llm_returning_intent("start_invoice", target_month=token),
+        )
+    return _setup
 
 
 @pytest.fixture
@@ -110,7 +126,65 @@ def test_returns_amount_and_project(tmp_settings, llm_says_last_invoice_amount):
     answer = try_answer("how much was my last invoice?", settings=tmp_settings)
     assert "Madabranding" in answer
     assert "2026-04" in answer
-    assert "150,000" in answer  # tmp_settings sets INVOICE_AMOUNT_INR=150000
+    assert "1,50,000" in answer  # Indian-format from INVOICE_AMOUNT_INR=150000
+
+
+def test_normalize_target_month():
+    from invoice_agent.webhook.query import _normalize_target_month
+    # Explicit YYYY-MM passes through.
+    assert _normalize_target_month("2026-05", "Asia/Kolkata") == "2026-05"
+    # Month name without year defaults to current year.
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    today = datetime.now(ZoneInfo("Asia/Kolkata"))
+    assert _normalize_target_month("may", "Asia/Kolkata") == f"{today.year:04d}-05"
+    assert _normalize_target_month("june", "Asia/Kolkata") == f"{today.year:04d}-06"
+    # Month name + year.
+    assert _normalize_target_month("may 2026", "Asia/Kolkata") == "2026-05"
+    # Relative phrases.
+    assert _normalize_target_month("current", "Asia/Kolkata") == today.strftime("%Y-%m")
+    assert _normalize_target_month("this month", "Asia/Kolkata") == today.strftime("%Y-%m")
+    assert _normalize_target_month("", "Asia/Kolkata") == today.strftime("%Y-%m")
+    assert _normalize_target_month(None, "Asia/Kolkata") == today.strftime("%Y-%m")
+
+
+def test_start_invoice_triggers_runner_and_returns_empty(tmp_settings, monkeypatch):
+    """start_invoice must call start_for_month(force=True) and signal the
+    webhook that the reply was already sent (empty-string sentinel)."""
+    from invoice_agent.db import init_db, mark_sent
+    from invoice_agent.webhook import query as query_mod
+    init_db(tmp_settings)
+    # Pre-existing 'sent' row for the target month — force=True must override it.
+    mark_sent("2026-05", project_name="OldProject", pdf_path="/tmp/x.pdf", settings=tmp_settings)
+
+    monkeypatch.setattr(
+        llm_mod,
+        "make_chat",
+        lambda **_: _fake_llm_returning_intent("start_invoice", target_month="may"),
+    )
+    fake_wa = MagicMock()
+    monkeypatch.setattr(query_mod, "WhatsAppClient", lambda *a, **kw: fake_wa)
+    fake_wa.__enter__ = lambda self: self
+    fake_wa.__exit__ = lambda *a: None
+
+    triggered = {}
+
+    def _fake_start(month, *, force=False, settings=None):
+        triggered["month"] = month
+        triggered["force"] = force
+        return {"month": month}
+
+    import invoice_agent.runner as runner_mod
+    monkeypatch.setattr(runner_mod, "start_for_month", _fake_start)
+
+    answer = try_answer("send invoice for may", settings=tmp_settings)
+    assert answer == ""  # empty-string sentinel: handler already sent the ack
+    assert triggered["force"] is True
+    # target_month "may" with current year (test env determined; just check shape)
+    assert triggered["month"].endswith("-05")
+    fake_wa.send_text.assert_called_once()
+    body = fake_wa.send_text.call_args.kwargs["body"]
+    assert "May" in body and "Starting" in body
 
 
 def test_generic_question_uses_chat_reply(tmp_settings, llm_says_generic_question):
@@ -122,14 +196,10 @@ def test_generic_question_uses_chat_reply(tmp_settings, llm_says_generic_questio
 def test_generic_question_suppressed_during_active_flow(
     tmp_settings, llm_says_generic_question
 ):
-    """Mid-flow, a misclassified message must NOT be eaten by chat — it has to
-    fall through to resume_with_reply so the graph can consume it."""
+    """Mid-flow (any month with status='started'), a misclassified message must
+    NOT be eaten by chat — it has to fall through to resume_with_reply."""
     init_db(tmp_settings)
-    # Mark current month as actively waiting for input (e.g. project name).
-    from datetime import datetime
-    from zoneinfo import ZoneInfo
-    month = datetime.now(ZoneInfo(tmp_settings.timezone)).strftime("%Y-%m")
-    mark_started(month, settings=tmp_settings)
+    mark_started("2026-06", settings=tmp_settings)  # any month, current or future
     assert try_answer("what can you do", settings=tmp_settings) is None
 
 

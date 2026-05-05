@@ -20,7 +20,12 @@ def generate_pdf(state: InvoiceState) -> InvoiceState:
         return {**state, "error": "no_project_name"}
 
     month = state["invoice_month"]
-    pdf_path = render_invoice_pdf(project_name=project, month=month)
+    pdf_path = render_invoice_pdf(
+        project_name=project,
+        month=month,
+        amount_inr=state.get("invoice_amount_inr"),
+        attendance_days=state.get("attendance_days"),
+    )
 
     log.info("generate_pdf.done", path=str(pdf_path), project=project)
     return {

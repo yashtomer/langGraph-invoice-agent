@@ -63,6 +63,20 @@ def already_sent(month: str, *, settings: Optional[Settings] = None) -> bool:
     return get_status(month, settings=settings) == "sent"
 
 
+def get_active_month(*, settings: Optional[Settings] = None) -> Optional[str]:
+    """Most recent month with status='started' (waiting at an interrupt), or None.
+
+    Used to route inbound WhatsApp replies to the right thread when the user
+    has been triggered for a future month (e.g. testing June flow on May 4th).
+    """
+    with connect(settings) as conn:
+        row = conn.execute(
+            "SELECT month FROM invoice_history WHERE status = 'started' "
+            "ORDER BY month DESC LIMIT 1"
+        ).fetchone()
+        return row["month"] if row else None
+
+
 def get_last_sent(*, settings: Optional[Settings] = None) -> Optional[sqlite3.Row]:
     """Most recent invoice_history row with status='sent', or None."""
     with connect(settings) as conn:
