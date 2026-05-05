@@ -6,12 +6,11 @@ import hmac
 import json
 from unittest.mock import MagicMock
 
-import pytest
 import respx
 from fastapi.testclient import TestClient
 from httpx import Response
 
-from invoice_agent.db import init_db, mark_sent, mark_started
+from invoice_agent.db import init_db, mark_started
 from invoice_agent.tools import llm as llm_mod
 from invoice_agent.tools.llm import QueryIntent
 from invoice_agent.webhook.server import create_app

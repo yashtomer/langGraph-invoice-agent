@@ -6,7 +6,6 @@ which tool to call. Edit with care.
 from __future__ import annotations
 
 from contextvars import ContextVar
-from typing import Optional
 
 import httpx
 from langchain_core.tools import tool
@@ -19,7 +18,7 @@ from .util import normalize_target_month
 log = get_logger(__name__)
 
 
-def _get_invoice_impl(month: str, *, settings: Optional[Settings] = None) -> dict:
+def _get_invoice_impl(month: str, *, settings: Settings | None = None) -> dict:
     s = settings or get_settings()
     resolved = normalize_target_month(month, s.timezone)
     with connect(s) as conn:

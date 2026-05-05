@@ -5,8 +5,7 @@ Stores per-user-phone alternating Human/AI messages. Each turn is two rows
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 
@@ -15,11 +14,11 @@ from ..db import connect
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def load_recent_turns(
-    user_phone: str, *, n: int = 6, settings: Optional[Settings] = None
+    user_phone: str, *, n: int = 6, settings: Settings | None = None
 ) -> list[BaseMessage]:
     """Return the last n turns (n*2 rows) as alternating HumanMessage/AIMessage,
     oldest first. n=6 → up to 12 messages."""
@@ -45,7 +44,7 @@ def append_turn(
     user_msg: str,
     assistant_msg: str,
     *,
-    settings: Optional[Settings] = None,
+    settings: Settings | None = None,
 ) -> None:
     """Insert two rows (user + assistant) with monotonic turn_idx scoped per user.
 
@@ -73,7 +72,7 @@ def append_turn(
 
 
 def trim_old(
-    user_phone: str, *, keep: int = 20, settings: Optional[Settings] = None
+    user_phone: str, *, keep: int = 20, settings: Settings | None = None
 ) -> None:
     """Delete rows beyond the most recent `keep` turns (keep*2 rows)."""
     keep_rows = keep * 2

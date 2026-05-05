@@ -3,8 +3,10 @@ that didn't appear in get_invoice / compare_invoices tool output this turn."""
 from __future__ import annotations
 
 import json
+import time
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.runnables import RunnableLambda
 
 from invoice_agent.qa.agent import _amounts_verified
 
@@ -62,13 +64,6 @@ def test_no_tool_messages_fails_when_reply_has_amount():
     # LLM hallucinated a number with no tool to back it up.
     msgs = [HumanMessage("hello"), AIMessage("you billed 50000")]
     assert _amounts_verified("you billed 50000", msgs) is False
-
-
-import time
-
-import pytest
-from langchain_core.messages import AIMessage, BaseMessage
-from langchain_core.runnables import RunnableLambda
 
 
 class SlowLLM(RunnableLambda):

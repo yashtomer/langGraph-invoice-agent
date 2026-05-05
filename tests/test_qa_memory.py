@@ -26,7 +26,7 @@ def test_load_returns_last_n_in_oldest_first_order(tmp_settings):
     for i in range(8):
         append_turn("91A", f"u{i}", f"a{i}", settings=tmp_settings)
     msgs = load_recent_turns("91A", n=3, settings=tmp_settings)
-    # 3 turns × 2 msgs = 6, oldest first → u5, a5, u6, a6, u7, a7
+    # 3 turns x 2 msgs = 6, oldest first -> u5, a5, u6, a6, u7, a7
     assert [m.content for m in msgs] == ["u5", "a5", "u6", "a6", "u7", "a7"]
 
 
@@ -49,7 +49,7 @@ def test_turn_idx_is_monotonic(tmp_settings):
         idxs = [r["turn_idx"] for r in conn.execute(
             "SELECT turn_idx FROM chat_memory WHERE user_phone='91A' ORDER BY turn_idx"
         )]
-    # 3 turns × 2 rows each = 6 monotonic indices starting at 0
+    # 3 turns x 2 rows each = 6 monotonic indices starting at 0
     assert idxs == [0, 1, 2, 3, 4, 5]
 
 

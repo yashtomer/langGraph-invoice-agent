@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
 from zoneinfo import ZoneInfo
 
 from ..logging_setup import get_logger
@@ -20,7 +19,7 @@ def _today(tz: str) -> datetime:
     return datetime.now(ZoneInfo(tz))
 
 
-def normalize_target_month(token: Optional[str], tz: str) -> str:
+def normalize_target_month(token: str | None, tz: str) -> str:
     """Resolve a free-form month token to ``YYYY-MM``.
 
     Accepts: ``YYYY-MM``, ``"may"`` / ``"may 2026"``, ``"this month"``,

@@ -1,6 +1,9 @@
 """qa/tools.py — invoice lookup, comparison, web search."""
 from __future__ import annotations
 
+import respx
+from httpx import Response
+
 from invoice_agent.db import init_db, mark_sent
 from invoice_agent.qa.tools import get_invoice
 
@@ -60,6 +63,7 @@ def test_get_invoice_does_not_raise_on_unknown_token(tmp_settings):
 def test_compare_invoices_both_present(tmp_settings):
     from datetime import datetime
     from zoneinfo import ZoneInfo
+
     from invoice_agent.qa.tools import compare_invoices
 
     init_db(tmp_settings)
@@ -83,6 +87,7 @@ def test_compare_invoices_both_present(tmp_settings):
 def test_compare_invoices_one_missing(tmp_settings):
     from datetime import datetime
     from zoneinfo import ZoneInfo
+
     from invoice_agent.qa.tools import compare_invoices
 
     init_db(tmp_settings)
@@ -105,10 +110,6 @@ def test_compare_invoices_neither_present(tmp_settings):
     assert out["previous"]["status"] == "not_found"
     assert out["amount_diff_inr"] is None
     assert out["same_project"] is False
-
-
-import respx
-from httpx import Response
 
 
 @respx.mock
@@ -160,9 +161,10 @@ def test_web_search_budget_blocks_after_5_calls(tmp_settings):
 
 def test_web_search_no_api_key_returns_error(tmp_settings, monkeypatch):
     """When Tavily key is missing the tool short-circuits without a network call."""
+    from pydantic import SecretStr
+
     from invoice_agent.qa import tools as tools_mod
     from invoice_agent.qa.tools import reset_web_search_budget, web_search
-    from pydantic import SecretStr
     reset_web_search_budget()
 
     # Patch the module-level get_settings used by web_search so we don't have

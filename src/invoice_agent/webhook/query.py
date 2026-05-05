@@ -76,7 +76,7 @@ def _start_invoice(_text: str, intent: QueryIntent, s: Settings) -> str:
 
     try:
         start_for_month(month, force=True, settings=s)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         log.warning("query.start_invoice.failed", err=str(e), month=month)
         return f"Couldn't start the {label} invoice flow: {e}"
 

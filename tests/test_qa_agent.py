@@ -1,11 +1,7 @@
 """Q&A agent — wires LLM (stubbed) + tools + memory + safety."""
 from __future__ import annotations
 
-import json
-from typing import Any
-
-import pytest
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langchain_core.runnables import RunnableLambda
 
 from invoice_agent.db import init_db, mark_sent

@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 import re
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
-from typing import Iterable, Optional
+from collections.abc import Iterable
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 
 from langchain_core.messages import BaseMessage, HumanMessage, ToolMessage
 from langgraph.prebuilt import create_react_agent
@@ -90,7 +91,7 @@ def build_qa_agent(settings: Settings, *, llm=None):
     )
 
 
-def answer(text: str, user_phone: str, *, settings: Optional[Settings] = None) -> str:
+def answer(text: str, user_phone: str, *, settings: Settings | None = None) -> str:
     """Synchronous entry point. Caller (webhook) should wrap in
     asyncio.to_thread() to keep the event loop responsive."""
     s = settings or get_settings()
@@ -102,14 +103,14 @@ def answer(text: str, user_phone: str, *, settings: Optional[Settings] = None) -
         agent = build_qa_agent(s)
         future = ex.submit(
             agent.invoke,
-            {"messages": history + [HumanMessage(text)]},
+            {"messages": [*history, HumanMessage(text)]},
             config={"recursion_limit": 8},
         )
         result = future.result(timeout=s.qa_invoke_timeout_seconds)
     except FuturesTimeoutError:
         log.warning("qa.timeout", user_phone=user_phone)
         return _FALLBACK_STRING
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         log.warning("qa.invoke_failed", err=str(e), user_phone=user_phone)
         return _FALLBACK_STRING
     finally:
